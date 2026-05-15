@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,7 +22,7 @@ import {
   useOnSelectionChange,
   useReactFlow,
 } from '@xyflow/react'
-import SmartCityAssetNode from './nodeTypes/SmartCityAssetNode'
+import IoTDeviceNode from './nodeTypes/IoTDeviceNode'
 import DirectedLabeledEdge from './edgeTypes/DirectedLabeledEdge'
 import { getAssetByType } from './assetCatalog'
 import { HackSimulatorContext } from './hackSimulatorContext'
@@ -32,10 +33,10 @@ import {
   loadPersistedGraph,
   parseGraphJson,
   persistGraphJson,
-  sanitizeHackSimulator,
 } from './graphIO'
+import { collectActiveAnomalies } from './peerTrust'
 
-const NODE_TYPE = 'smartCityAsset'
+const NODE_TYPE = 'iotDevice'
 const EDGE_TYPE = 'directedLabeled'
 
 function clampNonNegative(n) {
@@ -44,15 +45,39 @@ function clampNonNegative(n) {
   return num
 }
 
-function mergeNodeForInspector(n, sim) {
-  if (sim.active !== true) return n
-  const baseline = Number.isFinite(Number(n.data?.packetsPerSecond))
+function scenarioNodeBaseline(n, sim) {
+  const live = Number.isFinite(Number(n.data?.packetsPerSecond))
     ? Number(n.data.packetsPerSecond)
     : 0
+  if (sim.active !== true) return live
+  const locked = sim.nodeScenarioBaselines?.[n.id]
+  if (locked !== undefined && Number.isFinite(locked)) return locked
+  return live
+}
+
+function scenarioEdgeBaseline(e, sim) {
+  const live = Number.isFinite(Number(e.data?.packetsPerSecond))
+    ? Number(e.data.packetsPerSecond)
+    : 0
+  if (sim.active !== true) return live
+  const locked = sim.edgeScenarioBaselines?.[e.id]
+  if (locked !== undefined && Number.isFinite(locked)) return locked
+  return live
+}
+
+function mergeNodeForInspector(n, sim) {
+  const baseline = scenarioNodeBaseline(n, sim)
+  if (sim.active !== true) {
+    return {
+      ...n,
+      inspectorBaselinePps: baseline,
+    }
+  }
   const override = sim.nodeOverrides[n.id]
   const effective = override !== undefined ? override : baseline
   return {
     ...n,
+    inspectorBaselinePps: baseline,
     data: {
       ...n.data,
       packetsPerSecond: effective,
@@ -62,9 +87,7 @@ function mergeNodeForInspector(n, sim) {
 
 function mergeEdgeForInspector(e, sim) {
   if (sim.active !== true) return e
-  const baseline = Number.isFinite(Number(e.data?.packetsPerSecond))
-    ? Number(e.data.packetsPerSecond)
-    : 0
+  const baseline = scenarioEdgeBaseline(e, sim)
   const override = sim.edgeOverrides[e.id]
   const effective = override !== undefined ? override : baseline
   return {
@@ -79,6 +102,8 @@ function mergeEdgeForInspector(e, sim) {
 function GraphCanvasInner({
   onSelectionChange,
   onHackModeChange,
+  onHackSimulatorChange,
+  onGraphTopology,
   controllerRef,
   forceDefaultOnMount = false,
 }) {
@@ -109,18 +134,88 @@ function GraphCanvasInner({
   edgesRef.current = edges
   hackSimulatorRef.current = hackSimulator
 
+  const securityScan = useMemo(
+    () => collectActiveAnomalies(nodes, edges, hackSimulator),
+    [nodes, edges, hackSimulator]
+  )
+
+  const [anomalyToast, setAnomalyToast] = useState(null)
+  const anomalySigRef = useRef('')
+
+  useEffect(() => {
+    if (!hackSimulator.active) {
+      anomalySigRef.current = ''
+      setAnomalyToast(null)
+      return
+    }
+    const sig = [
+      ...securityScan.nodes.map((n) => `n:${n.id}`),
+      ...securityScan.edges.map((e) => `e:${e.id}`),
+    ]
+      .sort()
+      .join('|')
+    if (!sig) {
+      anomalySigRef.current = ''
+      setAnomalyToast(null)
+      return
+    }
+    if (sig !== anomalySigRef.current) {
+      anomalySigRef.current = sig
+      const nodeNames = securityScan.nodes.map((n) => n.label).filter(Boolean)
+      const spreadSuffix = securityScan.primarySpreadNodeId
+        ? ' — spread to highest-risk neighbor'
+        : ''
+      setAnomalyToast({
+        detail:
+          nodeNames.length > 0
+            ? nodeNames.slice(0, 6).join(', ') +
+              (nodeNames.length > 6 ? '…' : '') +
+              spreadSuffix
+            : spreadSuffix
+              ? spreadSuffix.trim().replace(/^—\s*/, '')
+              : undefined,
+      })
+    }
+  }, [hackSimulator.active, securityScan])
+
+  useEffect(() => {
+    if (!anomalyToast) return undefined
+    const id = window.setTimeout(() => setAnomalyToast(null), 14000)
+    return () => window.clearTimeout(id)
+  }, [anomalyToast])
+
   const hackContextValue = useMemo(
     () => ({
       active: hackSimulator.active === true,
       nodeOverrides: hackSimulator.nodeOverrides,
       edgeOverrides: hackSimulator.edgeOverrides,
+      nodeScenarioBaselines: hackSimulator.nodeScenarioBaselines,
+      edgeScenarioBaselines: hackSimulator.edgeScenarioBaselines,
+      isolationScoresByNodeId: securityScan.isolationScoresByNodeId ?? {},
+      anomalyNodeIds: securityScan.anomalyNodeIds ?? [],
+      spreadEdgeIds: securityScan.spreadEdgeIds ?? [],
+      compromisedNodeIds: securityScan.compromisedNodeIds ?? [],
+      primarySpreadNodeId: securityScan.primarySpreadNodeId ?? null,
+      primarySpreadEdgeId: securityScan.primarySpreadEdgeId ?? null,
     }),
     [
       hackSimulator.active,
       hackSimulator.nodeOverrides,
       hackSimulator.edgeOverrides,
+      hackSimulator.nodeScenarioBaselines,
+      hackSimulator.edgeScenarioBaselines,
+      securityScan.isolationScoresByNodeId,
+      securityScan.anomalyNodeIds,
+      securityScan.spreadEdgeIds,
+      securityScan.compromisedNodeIds,
+      securityScan.primarySpreadNodeId,
+      securityScan.primarySpreadEdgeId,
     ]
   )
+
+  useLayoutEffect(() => {
+    onHackSimulatorChange?.(hackContextValue)
+  }, [hackContextValue, onHackSimulatorChange])
 
   const onNodesChange = useCallback((changes) => {
     setNodes((nds) => applyNodeChanges(changes, nds))
@@ -130,7 +225,7 @@ function GraphCanvasInner({
     setEdges((eds) => applyEdgeChanges(changes, eds))
   }, [])
 
-  const nodeTypes = useMemo(() => ({ [NODE_TYPE]: SmartCityAssetNode }), [])
+  const nodeTypes = useMemo(() => ({ [NODE_TYPE]: IoTDeviceNode }), [])
   const edgeTypes = useMemo(() => ({ [EDGE_TYPE]: DirectedLabeledEdge }), [])
 
   const onInit = useCallback((instance) => {
@@ -142,20 +237,29 @@ function GraphCanvasInner({
     }
   }, [])
 
+  const applyDefaultArchitectureState = useCallback(() => {
+    const state = getDefaultCanvasState()
+    setNodes(state.nodes)
+    setEdges(state.edges)
+    setHackSimulator(state.hackSimulator ?? DEFAULT_HACK_SIMULATOR)
+    pendingViewportRef.current = state.viewport
+    reactFlowInstanceRef.current?.setViewport?.(state.viewport, { duration: 400 })
+    selectionIdsRef.current = { nodeId: null, edgeId: null }
+    setAnomalyToast(null)
+    skipNextPersistRef.current = true
+    const payload = buildCanvasPersistPayload({
+      nodes: state.nodes,
+      edges: state.edges,
+      viewport: state.viewport,
+      hackSimulator: state.hackSimulator ?? DEFAULT_HACK_SIMULATOR,
+    })
+    persistGraphJson(JSON.stringify(payload))
+    return state
+  }, [])
+
   useEffect(() => {
     if (forceDefaultOnMount) {
-      const state = getDefaultCanvasState()
-      setNodes(state.nodes)
-      setEdges(state.edges)
-      setHackSimulator(state.hackSimulator ?? DEFAULT_HACK_SIMULATOR)
-      pendingViewportRef.current = state.viewport
-      const payload = buildCanvasPersistPayload({
-        nodes: state.nodes,
-        edges: state.edges,
-        viewport: state.viewport,
-        hackSimulator: state.hackSimulator ?? DEFAULT_HACK_SIMULATOR,
-      })
-      persistGraphJson(JSON.stringify(payload))
+      applyDefaultArchitectureState()
     } else {
       const loaded = loadPersistedGraph()
       if (loaded) {
@@ -167,7 +271,7 @@ function GraphCanvasInner({
       }
     }
     setPersistReady(true)
-  }, [forceDefaultOnMount])
+  }, [forceDefaultOnMount, applyDefaultArchitectureState])
 
   const persistCanvas = useCallback(() => {
     const instance = reactFlowInstanceRef.current
@@ -280,7 +384,7 @@ function GraphCanvasInner({
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `smart-city-graph-${Date.now()}.json`
+    a.download = `iot-topology-${Date.now()}.json`
     a.click()
     URL.revokeObjectURL(url)
   }, [exportText])
@@ -289,12 +393,9 @@ function GraphCanvasInner({
     const { nodes: nextNodes, edges: nextEdges, viewport, hackSimulator: rawHack } =
       parseGraphJson(jsonText)
 
-    const nodeIds = nextNodes.map((n) => n.id)
-    const edgeIds = nextEdges.map((e) => e.id)
-
     setNodes(nextNodes)
     setEdges(nextEdges)
-    setHackSimulator(sanitizeHackSimulator(rawHack, nodeIds, edgeIds))
+    setHackSimulator(rawHack)
 
     reactFlowInstanceRef.current?.setViewport?.(viewport, { duration: 800 })
   }, [])
@@ -318,6 +419,10 @@ function GraphCanvasInner({
   useEffect(() => {
     onHackModeChange?.(hackSimulator.active === true)
   }, [hackSimulator.active, onHackModeChange])
+
+  useEffect(() => {
+    onGraphTopology?.({ nodes, edges })
+  }, [nodes, edges, onGraphTopology])
 
   const updateNodeData = useCallback((nodeId, patch) => {
     const { label, packetsPerSecond, ...rest } = patch
@@ -344,11 +449,9 @@ function GraphCanvasInner({
     if (hasPps) {
       const nextVal = clampNonNegative(packetsPerSecond)
       if (hackSimulatorRef.current.active === true) {
-        const baselineRaw = nodesRef.current.find((n) => n.id === nodeId)?.data
-          ?.packetsPerSecond
-        const baseline = Number.isFinite(Number(baselineRaw))
-          ? Number(baselineRaw)
-          : 0
+        const n = nodesRef.current.find((nn) => nn.id === nodeId)
+        const sim = hackSimulatorRef.current
+        const baseline = scenarioNodeBaseline(n ?? { id: nodeId, data: {} }, sim)
         setHackSimulator((sim) => {
           const nodeOverrides = { ...sim.nodeOverrides }
           if (nextVal === baseline) {
@@ -400,11 +503,9 @@ function GraphCanvasInner({
     if (hasPps) {
       const nextVal = clampNonNegative(packetsPerSecond)
       if (hackSimulatorRef.current.active === true) {
-        const baselineRaw = edgesRef.current.find((e) => e.id === edgeId)?.data
-          ?.packetsPerSecond
-        const baseline = Number.isFinite(Number(baselineRaw))
-          ? Number(baselineRaw)
-          : 0
+        const e = edgesRef.current.find((ee) => ee.id === edgeId)
+        const sim = hackSimulatorRef.current
+        const baseline = scenarioEdgeBaseline(e ?? { id: edgeId, data: {} }, sim)
         setHackSimulator((sim) => {
           const edgeOverrides = { ...sim.edgeOverrides }
           if (nextVal === baseline) {
@@ -435,23 +536,85 @@ function GraphCanvasInner({
     setNodes((nds) => nds.filter((n) => n.id !== nodeId))
     setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId))
     setHackSimulator((sim) => {
-      if (!(nodeId in sim.nodeOverrides)) return sim
-      const { [nodeId]: _, ...nodeOverrides } = sim.nodeOverrides
-      return { ...sim, nodeOverrides }
+      let next = { ...sim }
+      if (nodeId in sim.nodeOverrides) {
+        const { [nodeId]: _, ...nodeOverrides } = sim.nodeOverrides
+        next = { ...next, nodeOverrides }
+      }
+      if (sim.nodeScenarioBaselines && nodeId in sim.nodeScenarioBaselines) {
+        const { [nodeId]: __, ...nodeScenarioBaselines } = sim.nodeScenarioBaselines
+        next = {
+          ...next,
+          nodeScenarioBaselines:
+            Object.keys(nodeScenarioBaselines).length > 0
+              ? nodeScenarioBaselines
+              : undefined,
+        }
+      }
+      return next
     })
   }, [])
 
   const deleteEdgeById = useCallback((edgeId) => {
     setEdges((eds) => eds.filter((e) => e.id !== edgeId))
     setHackSimulator((sim) => {
-      if (!(edgeId in sim.edgeOverrides)) return sim
-      const { [edgeId]: _, ...edgeOverrides } = sim.edgeOverrides
-      return { ...sim, edgeOverrides }
+      let next = { ...sim }
+      if (edgeId in sim.edgeOverrides) {
+        const { [edgeId]: _, ...edgeOverrides } = sim.edgeOverrides
+        next = { ...next, edgeOverrides }
+      }
+      if (sim.edgeScenarioBaselines && edgeId in sim.edgeScenarioBaselines) {
+        const { [edgeId]: __, ...edgeScenarioBaselines } = sim.edgeScenarioBaselines
+        next = {
+          ...next,
+          edgeScenarioBaselines:
+            Object.keys(edgeScenarioBaselines).length > 0 ? edgeScenarioBaselines : undefined,
+        }
+      }
+      return next
     })
   }, [])
 
   const toggleHackMode = useCallback(() => {
-    setHackSimulator((s) => ({ ...s, active: !s.active }))
+    setHackSimulator((s) => {
+      const nextActive = !s.active
+      if (!nextActive) {
+        return {
+          ...s,
+          active: false,
+          nodeOverrides: {},
+          edgeOverrides: {},
+          nodeScenarioBaselines: undefined,
+          edgeScenarioBaselines: undefined,
+        }
+      }
+      const nodeScenarioBaselines = Object.fromEntries(
+        nodesRef.current.map((n) => [
+          n.id,
+          clampNonNegative(
+            Number.isFinite(Number(n.data?.packetsPerSecond))
+              ? Number(n.data.packetsPerSecond)
+              : 0
+          ),
+        ])
+      )
+      const edgeScenarioBaselines = Object.fromEntries(
+        edgesRef.current.map((e) => [
+          e.id,
+          clampNonNegative(
+            Number.isFinite(Number(e.data?.packetsPerSecond))
+              ? Number(e.data.packetsPerSecond)
+              : 0
+          ),
+        ])
+      )
+      return {
+        ...s,
+        active: true,
+        nodeScenarioBaselines,
+        edgeScenarioBaselines,
+      }
+    })
   }, [])
 
   const resetAttackScenario = useCallback(() => {
@@ -507,12 +670,57 @@ function GraphCanvasInner({
 
   const { fitView, setViewport, zoomIn, zoomOut } = useReactFlow()
 
+  const loadDefaultArchitecture = useCallback(() => {
+    if (
+      nodes.length > 0 &&
+      !window.confirm('Replace current topology with the default architecture?')
+    ) {
+      return
+    }
+    applyDefaultArchitectureState()
+    emitSelection()
+    requestAnimationFrame(() => {
+      fitView({ duration: 700, padding: 0.4, maxZoom: 1 })
+    })
+  }, [nodes.length, applyDefaultArchitectureState, emitSelection, fitView])
+
   const resetView = useCallback(() => {
     setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 600 })
   }, [setViewport])
 
   return (
     <div className="h-full w-full relative">
+      {anomalyToast ? (
+        <div
+          role="alert"
+          className="fixed top-4 right-4 z-[120] max-w-sm rounded-xl border border-rose-200/90 bg-rose-50 px-4 py-3 shadow-lg dark:border-rose-900/60 dark:bg-rose-950/90 pointer-events-auto"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-rose-900 dark:text-rose-100">
+                Anomaly detected
+              </div>
+              {anomalyToast.detail ? (
+                <div className="mt-1 text-xs text-rose-800/90 dark:text-rose-200/90 break-words">
+                  {anomalyToast.detail}
+                </div>
+              ) : (
+                <div className="mt-1 text-xs text-rose-800/90 dark:text-rose-200/90">
+                  Isolation Forest flagged unusual behavior on the canvas.
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              className="shrink-0 rounded-md px-2 py-0.5 text-lg leading-none text-rose-700 hover:bg-rose-200/60 dark:text-rose-300 dark:hover:bg-rose-900/50"
+              onClick={() => setAnomalyToast(null)}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
       <Panel
         position="top-left"
         className="m-3 p-2 rounded-xl border border-slate-200/70 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/60 shadow-sm flex items-center gap-2 pointer-events-none"
@@ -575,6 +783,14 @@ function GraphCanvasInner({
         >
           Import
         </button>
+        <button
+          type="button"
+          onClick={loadDefaultArchitecture}
+          title="Reset canvas to the built-in demo topology"
+          className="pointer-events-auto h-8 px-3 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+        >
+          Default architecture
+        </button>
 
         <div className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
 
@@ -588,7 +804,9 @@ function GraphCanvasInner({
               : 'border border-slate-200/70 dark:border-slate-800/70 hover:bg-slate-100/70 dark:hover:bg-slate-800/40',
           ].join(' ')}
         >
-          {hackSimulator.active === true ? 'Attack simulator on' : 'Attack simulator'}
+          {hackSimulator.active === true
+            ? 'Compromise scenario on'
+            : 'Compromise scenario'}
         </button>
         <button
           type="button"
@@ -598,7 +816,7 @@ function GraphCanvasInner({
             Object.keys(hackSimulator.edgeOverrides).length === 0
           }
           className="pointer-events-auto h-8 px-2 rounded-lg border border-slate-200/70 dark:border-slate-800/70 text-xs hover:bg-slate-100/70 dark:hover:bg-slate-800/40 disabled:opacity-40 disabled:pointer-events-none"
-          title="Clear tampered packet rates (baseline unchanged)"
+          title="Clear scenario packet overrides (baseline unchanged)"
         >
           Reset scenario
         </button>
@@ -737,6 +955,8 @@ const GraphCanvas = memo(
         <GraphCanvasInner
           onSelectionChange={props.onSelectionChange}
           onHackModeChange={props.onHackModeChange}
+          onHackSimulatorChange={props.onHackSimulatorChange}
+          onGraphTopology={props.onGraphTopology}
           controllerRef={ref}
           forceDefaultOnMount={props.forceDefaultOnMount}
         />

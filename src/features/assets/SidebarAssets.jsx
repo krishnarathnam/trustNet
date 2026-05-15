@@ -12,7 +12,7 @@ export default function SidebarAssets() {
   return (
     <div className="space-y-3">
       <div className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
-        Smart City Assets
+        IoT devices
       </div>
 
       <div className="space-y-2">

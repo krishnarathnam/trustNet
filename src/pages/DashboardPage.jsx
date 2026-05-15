@@ -1,35 +1,35 @@
 import { Link } from 'react-router-dom'
 
 const kpis = [
-  { label: 'Active systems', value: '128', hint: 'Across 12 districts' },
+  { label: 'Provisioned devices', value: '2.4K', hint: 'Across 18 sites' },
   { label: 'Avg packets/s', value: '842K', hint: 'Rolling 5 min' },
-  { label: 'Open incidents', value: '3', hint: '2 P2, 1 P3' },
-  { label: 'Platform uptime', value: '99.97%', hint: '30-day SLA' },
+  { label: 'Trust alerts', value: '2', hint: 'Peer anomaly rules' },
+  { label: 'Gateway uptime', value: '99.97%', hint: '30-day edge SLA' },
 ]
 
 const trafficSeries = [42, 55, 48, 62, 71, 68, 75, 82, 78, 88, 91, 86]
 
 const systemsTable = [
-  { name: 'Traffic Management', status: 'Healthy', pps: '1.2M' },
-  { name: 'Healthcare Platform', status: 'Degraded', pps: '640K' },
-  { name: 'Citizen Portal', status: 'Healthy', pps: '380K' },
-  { name: 'IoT Sensor Mesh', status: 'Healthy', pps: '2.1M' },
-  { name: 'Power Grid SCADA', status: 'Healthy', pps: '510K' },
+  { name: 'Edge gateway fleet', status: 'Healthy', pps: '1.2M' },
+  { name: 'MQTT broker cluster', status: 'Degraded', pps: '640K' },
+  { name: 'Environmental sensors', status: 'Healthy', pps: '380K' },
+  { name: 'IP camera edge uplink', status: 'Healthy', pps: '2.1M' },
+  { name: 'PLC / SCADA bridges', status: 'Healthy', pps: '510K' },
 ]
 
 const dailyReport = {
   dateLabel: 'Friday, April 11, 2026',
   generatedAt: '23:45 local',
   summary: [
-    'Cross-district traffic APIs stayed within SLO; no critical dependency outages.',
-    'Healthcare FHIR gateway saw two brief latency spikes (resolved under 4 min).',
-    'Planned maintenance window for district 7 IoT aggregators completed on schedule.',
+    'Northbound TLS from site gateways stayed within SLO; no broker partition events.',
+    'Wearables hub firmware rollout completed; peer trust scores normalized within 2 h.',
+    'Site 12 camera ingest showed a short burst; anomaly rules cleared after auto re-auth.',
   ],
   stats: [
-    { label: 'Total events ingested', value: '48.2M' },
-    { label: 'Mean API latency', value: '118 ms' },
-    { label: 'Failed auth attempts', value: '1,024' },
-    { label: 'Automated remediations', value: '17' },
+    { label: 'Telemetry events ingested', value: '48.2M' },
+    { label: 'Mean edge latency', value: '118 ms' },
+    { label: 'Failed device handshakes', value: '1,024' },
+    { label: 'Automated quarantines', value: '17' },
   ],
 }
 
@@ -107,7 +107,7 @@ export default function DashboardPage() {
           <div className="leading-tight">
             <div className="font-semibold">Operations dashboard</div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Dummy metrics — smart city network overview
+              Dummy metrics — IoT fleet & trust overview
             </div>
           </div>
         </div>
@@ -204,7 +204,7 @@ export default function DashboardPage() {
         <section className="rounded-2xl border border-slate-200/70 dark:border-slate-800/70 bg-white/60 dark:bg-slate-900/20 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-200/60 dark:border-slate-800/60">
             <div className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-              Systems snapshot
+              Devices snapshot
             </div>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               Reported packets per second (illustrative)
@@ -214,7 +214,7 @@ export default function DashboardPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide bg-slate-50/80 dark:bg-slate-950/40">
-                  <th className="px-5 py-3">System</th>
+                  <th className="px-5 py-3">Device</th>
                   <th className="px-5 py-3">Status</th>
                   <th className="px-5 py-3 text-right">Packets/s</th>
                 </tr>

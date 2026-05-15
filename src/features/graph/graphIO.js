@@ -1,13 +1,30 @@
 import { MarkerType } from '@xyflow/react'
 import { getAssetByType } from './assetCatalog'
 
-export const GRAPH_IO_VERSION = 3
-const LEGACY_GRAPH_IO_VERSION = 1
+export const GRAPH_IO_VERSION = 4
+const GRAPH_IO_VERSION_3 = 3
 const GRAPH_IO_VERSION_2 = 2
-const NODE_TYPE = 'smartCityAsset'
+const LEGACY_GRAPH_IO_VERSION = 1
+const NODE_TYPE = 'iotDevice'
 const EDGE_TYPE = 'directedLabeled'
 
-/** v1 JSON used `risk` (0–100); used when `risk` is missing on import */
+/** Maps pre-IoT catalog `assetType` strings to current IoT types (import / localStorage). */
+const LEGACY_ASSET_TYPE_TO_IOT = {
+  traffic: 'edge_gateway',
+  healthcare: 'wearables_hub',
+  financial: 'cloud_ingest',
+  citizen: 'mqtt_broker',
+  data_center: 'cloud_ingest',
+  iot: 'env_sensor',
+  power_grid: 'plc_controller',
+}
+
+function migrateLegacyAssetType(assetType) {
+  const raw = String(assetType ?? '')
+  return LEGACY_ASSET_TYPE_TO_IOT[raw] ?? raw
+}
+
+/** v1 JSON used `risk` (0–100); keyed by legacy `assetType` before migration */
 const LEGACY_DEFAULT_RISK_BY_TYPE = {
   traffic: 25,
   healthcare: 35,
@@ -35,7 +52,8 @@ function isRecord(value) {
 
 function normalizeNodeDataV2(n) {
   if (!isRecord(n)) throw new Error('Invalid node entry')
-  const assetType = String(n.data?.assetType ?? '')
+  const rawAssetType = String(n.data?.assetType ?? '')
+  const assetType = migrateLegacyAssetType(rawAssetType)
   const asset = getAssetByType(assetType)
   const defaultPps = asset?.defaultPacketsPerSecond ?? 0
   const packetsPerSecond = clampNonNegative(n.data?.packetsPerSecond ?? defaultPps)
@@ -54,14 +72,15 @@ function normalizeNodeDataV2(n) {
 
 function normalizeNodeDataV1(n) {
   if (!isRecord(n)) throw new Error('Invalid node entry')
-  const assetType = String(n.data?.assetType ?? '')
-  const asset = getAssetByType(assetType)
-  const riskFallback = LEGACY_DEFAULT_RISK_BY_TYPE[assetType] ?? 0
+  const rawAssetType = String(n.data?.assetType ?? '')
+  const riskFallback = LEGACY_DEFAULT_RISK_BY_TYPE[rawAssetType] ?? 0
   const riskRaw = Number(n.data?.risk ?? riskFallback)
   const risk = Number.isFinite(riskRaw)
     ? Math.max(0, Math.min(100, riskRaw))
     : 0
   const packetsPerSecond = Math.round(risk * 1000)
+  const assetType = migrateLegacyAssetType(rawAssetType)
+  const asset = getAssetByType(assetType)
 
   return {
     id: String(n.id),
@@ -209,132 +228,184 @@ export const DEFAULT_HACK_SIMULATOR = {
   active: false,
   nodeOverrides: {},
   edgeOverrides: {},
+  nodeScenarioBaselines: undefined,
+  edgeScenarioBaselines: undefined,
 }
 
 /**
- * Clears prior work conceptually: returns parsed nodes/edges/viewport/hackSimulator
- * for a small realistic smart-city dependency graph (ingress → hub → sector systems).
+ * Default canvas: compact field → edge → security → app/cloud tier (demo preset).
  */
 export function getDefaultCanvasState() {
   const nodes = [
     {
-      id: 'def-iot',
+      id: 'def-env',
       type: NODE_TYPE,
-      position: { x: 40, y: 60 },
+      position: { x: 24, y: 24 },
       data: {
-        assetType: 'iot',
-        label: 'IoT Sensor Network',
+        assetType: 'env_sensor',
+        label: 'Environmental sensor',
+        packetsPerSecond: 3_800,
+      },
+    },
+    {
+      id: 'def-cam',
+      type: NODE_TYPE,
+      position: { x: 24, y: 112 },
+      data: {
+        assetType: 'ip_camera',
+        label: 'IP camera',
+        packetsPerSecond: 9_200,
+      },
+    },
+    {
+      id: 'def-plc',
+      type: NODE_TYPE,
+      position: { x: 24, y: 200 },
+      data: {
+        assetType: 'plc_controller',
+        label: 'Industrial PLC',
+        packetsPerSecond: 4_200,
+      },
+    },
+    {
+      id: 'def-gw',
+      type: NODE_TYPE,
+      position: { x: 200, y: 112 },
+      data: {
+        assetType: 'edge_gateway',
+        label: 'Edge gateway',
+        packetsPerSecond: 12_000,
+      },
+    },
+    {
+      id: 'def-fw',
+      type: NODE_TYPE,
+      position: { x: 360, y: 48 },
+      data: {
+        assetType: 'firewall',
+        label: 'Firewall',
+        packetsPerSecond: 28_000,
+      },
+    },
+    {
+      id: 'def-lb',
+      type: NODE_TYPE,
+      position: { x: 360, y: 168 },
+      data: {
+        assetType: 'load_balancer',
+        label: 'Load balancer',
+        packetsPerSecond: 30_000,
+      },
+    },
+    {
+      id: 'def-api',
+      type: NODE_TYPE,
+      position: { x: 520, y: 24 },
+      data: {
+        assetType: 'api_gateway',
+        label: 'API gateway',
+        packetsPerSecond: 25_000,
+      },
+    },
+    {
+      id: 'def-app',
+      type: NODE_TYPE,
+      position: { x: 520, y: 112 },
+      data: {
+        assetType: 'app_server',
+        label: 'Application server',
         packetsPerSecond: 22_000,
       },
     },
     {
-      id: 'def-traffic',
+      id: 'def-db',
       type: NODE_TYPE,
-      position: { x: 40, y: 260 },
+      position: { x: 520, y: 200 },
       data: {
-        assetType: 'traffic',
-        label: 'Traffic Management System',
-        packetsPerSecond: 6_000,
-      },
-    },
-    {
-      id: 'def-citizen',
-      type: NODE_TYPE,
-      position: { x: 40, y: 460 },
-      data: {
-        assetType: 'citizen',
-        label: 'Citizen Portal',
-        packetsPerSecond: 5_000,
-      },
-    },
-    {
-      id: 'def-power',
-      type: NODE_TYPE,
-      position: { x: 360, y: 40 },
-      data: {
-        assetType: 'power_grid',
-        label: 'Power Grid System',
-        packetsPerSecond: 3_000,
-      },
-    },
-    {
-      id: 'def-dc',
-      type: NODE_TYPE,
-      position: { x: 380, y: 240 },
-      data: {
-        assetType: 'data_center',
-        label: 'Municipal Data Center',
-        packetsPerSecond: 18_000,
-      },
-    },
-    {
-      id: 'def-health',
-      type: NODE_TYPE,
-      position: { x: 760, y: 140 },
-      data: {
-        assetType: 'healthcare',
-        label: 'Healthcare Platform',
-        packetsPerSecond: 9_000,
-      },
-    },
-    {
-      id: 'def-finance',
-      type: NODE_TYPE,
-      position: { x: 760, y: 360 },
-      data: {
-        assetType: 'financial',
-        label: 'Financial Services System',
+        assetType: 'database_server',
+        label: 'Database server',
         packetsPerSecond: 12_000,
+      },
+    },
+    {
+      id: 'def-cloud',
+      type: NODE_TYPE,
+      position: { x: 680, y: 24 },
+      data: {
+        assetType: 'cloud_ingest',
+        label: 'Cloud ingest',
+        packetsPerSecond: 18_000,
       },
     },
   ]
 
   const edges = [
     {
-      id: 'def-e-iot-dc',
+      id: 'def-e-env-gw',
       type: EDGE_TYPE,
-      source: 'def-iot',
-      target: 'def-dc',
-      data: { label: 'Telemetry ingress', packetsPerSecond: 20_000 },
+      source: 'def-env',
+      target: 'def-gw',
+      data: { label: 'Sensor telemetry', packetsPerSecond: 3_500 },
     },
     {
-      id: 'def-e-traffic-dc',
+      id: 'def-e-cam-gw',
       type: EDGE_TYPE,
-      source: 'def-traffic',
-      target: 'def-dc',
-      data: { label: 'Signal / CCTV feeds', packetsPerSecond: 5_500 },
+      source: 'def-cam',
+      target: 'def-gw',
+      data: { label: 'Video uplink', packetsPerSecond: 8_800 },
     },
     {
-      id: 'def-e-citizen-dc',
+      id: 'def-e-plc-gw',
       type: EDGE_TYPE,
-      source: 'def-citizen',
-      target: 'def-dc',
-      data: { label: 'HTTPS / APIs', packetsPerSecond: 4_800 },
+      source: 'def-plc',
+      target: 'def-gw',
+      data: { label: 'OPC / Modbus', packetsPerSecond: 4_000 },
     },
     {
-      id: 'def-e-power-dc',
+      id: 'def-e-gw-fw',
       type: EDGE_TYPE,
-      source: 'def-power',
-      target: 'def-dc',
-      data: { label: 'Critical facility power', packetsPerSecond: 2_500 },
+      source: 'def-gw',
+      target: 'def-fw',
+      data: { label: 'Northbound TLS', packetsPerSecond: 17_000 },
     },
     {
-      id: 'def-e-dc-health',
+      id: 'def-e-fw-lb',
       type: EDGE_TYPE,
-      source: 'def-dc',
-      target: 'def-health',
-      data: { label: 'EHR / clinical integration', packetsPerSecond: 8_500 },
+      source: 'def-fw',
+      target: 'def-lb',
+      data: { label: 'Policy allow', packetsPerSecond: 26_000 },
     },
     {
-      id: 'def-e-dc-finance',
+      id: 'def-e-lb-api',
       type: EDGE_TYPE,
-      source: 'def-dc',
-      target: 'def-finance',
-      data: { label: 'Payments / treasury APIs', packetsPerSecond: 11_000 },
+      source: 'def-lb',
+      target: 'def-api',
+      data: { label: 'HTTP / gRPC', packetsPerSecond: 24_000 },
+    },
+    {
+      id: 'def-e-api-app',
+      type: EDGE_TYPE,
+      source: 'def-api',
+      target: 'def-app',
+      data: { label: 'REST routing', packetsPerSecond: 21_000 },
+    },
+    {
+      id: 'def-e-api-cloud',
+      type: EDGE_TYPE,
+      source: 'def-api',
+      target: 'def-cloud',
+      data: { label: 'Stream ingest', packetsPerSecond: 17_500 },
+    },
+    {
+      id: 'def-e-app-db',
+      type: EDGE_TYPE,
+      source: 'def-app',
+      target: 'def-db',
+      data: { label: 'SQL queries', packetsPerSecond: 11_000 },
     },
   ]
 
-  const viewport = { x: 0, y: 0, zoom: 0.72 }
+  const viewport = { x: 40, y: 40, zoom: 1 }
 
   const serialized = serializeGraph({ nodes, edges, viewport })
   return parseGraphJson(
@@ -346,10 +417,35 @@ export function getDefaultCanvasState() {
 }
 
 /**
+ * If scenario is active but baseline snapshots are missing (legacy JSON), lock to current graph data.
+ */
+export function recoverScenarioBaselinesIfNeeded(sim, nodes, edges) {
+  if (!sim.active || !isRecord(sim)) return sim
+  const nodeLocks = sim.nodeScenarioBaselines
+  const edgeLocks = sim.edgeScenarioBaselines
+  const hasNodeLocks = isRecord(nodeLocks) && Object.keys(nodeLocks).length > 0
+  const hasEdgeLocks = isRecord(edgeLocks) && Object.keys(edgeLocks).length > 0
+  if (hasNodeLocks && hasEdgeLocks) return sim
+
+  return {
+    ...sim,
+    nodeScenarioBaselines: hasNodeLocks
+      ? nodeLocks
+      : Object.fromEntries(
+          nodes.map((n) => [n.id, clampNonNegative(n.data?.packetsPerSecond ?? 0)])
+        ),
+    edgeScenarioBaselines: hasEdgeLocks
+      ? edgeLocks
+      : Object.fromEntries(
+          edges.map((e) => [e.id, clampNonNegative(e.data?.packetsPerSecond ?? 0)])
+        ),
+  }
+}
+
+/**
  * @param {unknown} value
  * @param {string[]} nodeIds
  * @param {string[]} edgeIds
- * @returns {{ active: boolean, nodeOverrides: Record<string, number>, edgeOverrides: Record<string, number> }}
  */
 export function sanitizeHackSimulator(value, nodeIds, edgeIds) {
   const nodeSet = new Set(nodeIds)
@@ -359,6 +455,8 @@ export function sanitizeHackSimulator(value, nodeIds, edgeIds) {
       active: false,
       nodeOverrides: {},
       edgeOverrides: {},
+      nodeScenarioBaselines: undefined,
+      edgeScenarioBaselines: undefined,
     }
   }
   const active = value.active === true
@@ -376,7 +474,31 @@ export function sanitizeHackSimulator(value, nodeIds, edgeIds) {
       if (edgeSet.has(id)) edgeOverrides[id] = clampNonNegative(v)
     }
   }
-  return { active, nodeOverrides, edgeOverrides }
+
+  const nodeScenarioBaselines = {}
+  if (isRecord(value.nodeScenarioBaselines)) {
+    for (const [k, v] of Object.entries(value.nodeScenarioBaselines)) {
+      const id = String(k)
+      if (nodeSet.has(id)) nodeScenarioBaselines[id] = clampNonNegative(v)
+    }
+  }
+  const edgeScenarioBaselines = {}
+  if (isRecord(value.edgeScenarioBaselines)) {
+    for (const [k, v] of Object.entries(value.edgeScenarioBaselines)) {
+      const id = String(k)
+      if (edgeSet.has(id)) edgeScenarioBaselines[id] = clampNonNegative(v)
+    }
+  }
+
+  return {
+    active,
+    nodeOverrides,
+    edgeOverrides,
+    nodeScenarioBaselines:
+      Object.keys(nodeScenarioBaselines).length > 0 ? nodeScenarioBaselines : undefined,
+    edgeScenarioBaselines:
+      Object.keys(edgeScenarioBaselines).length > 0 ? edgeScenarioBaselines : undefined,
+  }
 }
 
 /**
@@ -389,6 +511,14 @@ export function buildCanvasPersistPayload({ nodes, edges, viewport, hackSimulato
       active: hackSimulator.active === true,
       nodeOverrides: { ...hackSimulator.nodeOverrides },
       edgeOverrides: { ...hackSimulator.edgeOverrides },
+      ...(hackSimulator.nodeScenarioBaselines &&
+      Object.keys(hackSimulator.nodeScenarioBaselines).length > 0
+        ? { nodeScenarioBaselines: { ...hackSimulator.nodeScenarioBaselines } }
+        : {}),
+      ...(hackSimulator.edgeScenarioBaselines &&
+      Object.keys(hackSimulator.edgeScenarioBaselines).length > 0
+        ? { edgeScenarioBaselines: { ...hackSimulator.edgeScenarioBaselines } }
+        : {}),
     },
   }
 }
@@ -428,11 +558,12 @@ export function parseGraphJson(jsonText) {
   const version = obj.version
   if (
     version !== GRAPH_IO_VERSION &&
+    version !== GRAPH_IO_VERSION_3 &&
     version !== GRAPH_IO_VERSION_2 &&
     version !== LEGACY_GRAPH_IO_VERSION
   ) {
     throw new Error(
-      `Unsupported graph version. Expected ${GRAPH_IO_VERSION}, ${GRAPH_IO_VERSION_2}, or ${LEGACY_GRAPH_IO_VERSION}, got ${version}`
+      `Unsupported graph version. Expected ${GRAPH_IO_VERSION}, ${GRAPH_IO_VERSION_3}, ${GRAPH_IO_VERSION_2}, or ${LEGACY_GRAPH_IO_VERSION}, got ${version}`
     )
   }
 
@@ -456,7 +587,7 @@ export function parseGraphJson(jsonText) {
   const edges = edgesArr.map((e) => {
     if (!isRecord(e)) throw new Error('Invalid edge entry')
     const edgePps =
-      version === GRAPH_IO_VERSION
+      version === GRAPH_IO_VERSION || version === GRAPH_IO_VERSION_3
         ? clampNonNegative(e.data?.packetsPerSecond ?? 0)
         : 0
     return {
@@ -476,7 +607,8 @@ export function parseGraphJson(jsonText) {
 
   const nodeIds = nodes.map((n) => n.id)
   const edgeIds = edges.map((e) => e.id)
-  const hackSimulator = sanitizeHackSimulator(obj.hackSimulator, nodeIds, edgeIds)
+  const rawHack = sanitizeHackSimulator(obj.hackSimulator, nodeIds, edgeIds)
+  const hackSimulator = recoverScenarioBaselinesIfNeeded(rawHack, nodes, edges)
 
   return { nodes, edges, viewport, hackSimulator }
 }

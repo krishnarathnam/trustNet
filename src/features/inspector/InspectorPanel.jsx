@@ -1,5 +1,16 @@
+import { useMemo } from 'react'
+import {
+  getNodeTrustInsights,
+  hasScenarioDrift,
+  isAnomalyDetected,
+  isScenarioCritical,
+} from '../graph/peerTrust'
+
 export default function InspectorPanel({
   hackModeActive = false,
+  hackSimulator = null,
+  allNodes = [],
+  allEdges = [],
   selectedNode,
   selectedEdge,
   onUpdateNodeData,
@@ -7,6 +18,44 @@ export default function InspectorPanel({
   onDeleteNodeById,
   onDeleteEdgeById,
 }) {
+  const sim = hackSimulator ?? { active: false }
+
+  const nodeTrust = useMemo(() => {
+    if (!selectedNode?.id) return null
+    const baseline =
+      typeof selectedNode.inspectorBaselinePps === 'number'
+        ? selectedNode.inspectorBaselinePps
+        : Number(selectedNode.data?.packetsPerSecond) || 0
+    const effective = Number(selectedNode.data?.packetsPerSecond) || 0
+    return getNodeTrustInsights({
+      nodeId: selectedNode.id,
+      nodes: allNodes,
+      edges: allEdges,
+      assetType: selectedNode.data?.assetType ?? '',
+      baselinePps: baseline,
+      effectivePps: effective,
+      sim,
+    })
+  }, [selectedNode, allNodes, allEdges, sim])
+
+  const nodeScenarioUi = useMemo(() => {
+    if (!nodeTrust || !selectedNode) return null
+    const baseline =
+      typeof selectedNode.inspectorBaselinePps === 'number'
+        ? selectedNode.inspectorBaselinePps
+        : Number(selectedNode.data?.packetsPerSecond) || 0
+    const effective = Number(selectedNode.data?.packetsPerSecond) || 0
+    const drift = hasScenarioDrift({ baselinePps: baseline, effectivePps: effective })
+    const anomalyFromScan =
+      hackModeActive && (sim.anomalyNodeIds ?? []).includes(selectedNode.id)
+    const anomalyDetected = anomalyFromScan || isAnomalyDetected(nodeTrust)
+    const critical = isScenarioCritical({
+      isAnomaly: anomalyDetected,
+      trustAnomaly: anomalyDetected,
+    })
+    return { drift, critical, anomalyDetected }
+  }, [nodeTrust, selectedNode, hackModeActive, sim.anomalyNodeIds])
+
   return (
     <div className="h-full">
       <div className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">
@@ -15,8 +64,8 @@ export default function InspectorPanel({
 
       {hackModeActive ? (
         <div className="mt-2 rounded-lg border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-950 dark:text-amber-100/90">
-          Attack simulator: packet rate edits apply to the attack scenario only. Baseline
-          is unchanged until you turn attack simulator off and edit here.
+          Compromise scenario: packet rate edits apply to the scenario only. Baseline is
+          unchanged until you turn the scenario off and edit here.
         </div>
       ) : null}
 
@@ -48,7 +97,7 @@ export default function InspectorPanel({
             <div>
               <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
                 {hackModeActive
-                  ? 'Packets per second (attack scenario)'
+                  ? 'Packets per second (scenario)'
                   : 'Packets per second'}
               </div>
               <input
@@ -69,6 +118,106 @@ export default function InspectorPanel({
               />
             </div>
 
+            {nodeTrust ? (
+              <div className="rounded-lg border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 px-3 py-2 space-y-1.5 text-xs">
+                <div className="font-medium text-slate-700 dark:text-slate-200">
+                  Trust & anomaly
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Trust score</span>
+                  <span className="tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                    {Math.round(nodeTrust.trustScore)}%
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Intrinsic (catalog)</span>
+                  <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {Math.round(nodeTrust.intrinsicTrust)}%
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Structural peer trust</span>
+                  <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {Math.round(nodeTrust.peerTrust)}%
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Behavioral (stability)</span>
+                  <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {Math.round(nodeTrust.behavioralComponent)}%
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Interaction (links)</span>
+                  <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {Math.round(nodeTrust.interactionComponent)}%
+                  </span>
+                </div>
+                <div className="pt-1 text-[10px] leading-snug text-slate-500 dark:text-slate-500">
+                  Anomaly detection uses Isolation Forest on traffic and trust features — not
+                  the composite trust score above.
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Isolation Forest score</span>
+                  <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {hackModeActive
+                      ? (nodeTrust.isolationScore ?? 0.5).toFixed(3)
+                      : 'N/A (enable scenario)'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Neighbor count</span>
+                  <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {nodeTrust.degree}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Deviation</span>
+                  <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                    {nodeTrust.deviationPercent.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Scenario drift</span>
+                  <span className="text-right text-slate-900 dark:text-slate-100">
+                    {!hackModeActive
+                      ? 'N/A (enable scenario)'
+                      : nodeScenarioUi?.drift && !nodeScenarioUi.critical
+                        ? 'Yes'
+                        : nodeScenarioUi?.critical
+                          ? 'No (critical)'
+                          : 'No'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Anomaly detected</span>
+                  <span
+                    className={
+                      hackModeActive && nodeScenarioUi?.anomalyDetected
+                        ? 'font-semibold text-amber-700 dark:text-amber-400'
+                        : 'text-slate-900 dark:text-slate-100'
+                    }
+                  >
+                    {hackModeActive && nodeScenarioUi?.anomalyDetected
+                      ? 'Yes'
+                      : hackModeActive
+                        ? 'No'
+                        : 'N/A (enable scenario)'}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>Spread reached</span>
+                  <span className="text-slate-900 dark:text-slate-100">
+                    {hackModeActive
+                      ? nodeTrust.spreadReached
+                        ? 'Yes'
+                        : 'No'
+                      : 'N/A (enable scenario)'}
+                  </span>
+                </div>
             <button
               type="button"
               onClick={() => onDeleteNodeById?.(selectedNode.id)}
@@ -104,7 +253,7 @@ export default function InspectorPanel({
             <div>
               <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
                 {hackModeActive
-                  ? 'Packets per second on link (attack scenario)'
+                  ? 'Packets per second on link (scenario)'
                   : 'Packets per second (on this link)'}
               </div>
               <input
@@ -125,6 +274,20 @@ export default function InspectorPanel({
               />
             </div>
 
+
+            {hackModeActive ? (
+              <div className="rounded-lg border border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 px-3 py-2 text-xs">
+                <div className="flex justify-between gap-2 text-slate-600 dark:text-slate-400">
+                  <span>On propagation path</span>
+                  <span className="text-slate-900 dark:text-slate-100">
+                    {(hackSimulator?.spreadEdgeIds ?? []).includes(selectedEdge.id)
+                      ? 'Yes (red link)'
+                      : 'No'}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
             <button
               type="button"
               onClick={() => onDeleteEdgeById?.(selectedEdge.id)}
@@ -138,4 +301,3 @@ export default function InspectorPanel({
     </div>
   )
 }
-

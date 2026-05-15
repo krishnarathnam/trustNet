@@ -1,5 +1,6 @@
 import SidebarAssets from '../features/assets/SidebarAssets'
 import GraphCanvas from '../features/graph/GraphCanvas'
+import { DEFAULT_HACK_SIMULATOR } from '../features/graph/graphIO'
 import InspectorPanel from '../features/inspector/InspectorPanel'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -11,6 +12,8 @@ export default function CanvasPage({ forceDefaultOnMount = false }) {
   const [selectedNode, setSelectedNode] = useState(null)
   const [selectedEdge, setSelectedEdge] = useState(null)
   const [hackModeActive, setHackModeActive] = useState(false)
+  const [hackSimulator, setHackSimulator] = useState(DEFAULT_HACK_SIMULATOR)
+  const [graphTopology, setGraphTopology] = useState({ nodes: [], edges: [] })
 
   const onSelectionChange = useCallback(({ selectedNode, selectedEdge }) => {
     setSelectedNode(selectedNode)
@@ -47,9 +50,9 @@ export default function CanvasPage({ forceDefaultOnMount = false }) {
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-sm" />
           <div className="leading-tight">
-            <div className="font-semibold">Smart City Dependency Canvas</div>
+            <div className="font-semibold">IoT topology canvas</div>
             <div className="text-xs text-slate-500 dark:text-slate-400">
-              Drag assets, connect systems, export/import JSON.
+              Drag devices, connect data paths, export/import JSON.
             </div>
           </div>
         </div>
@@ -71,11 +74,16 @@ export default function CanvasPage({ forceDefaultOnMount = false }) {
             forceDefaultOnMount={forceDefaultOnMount}
             onSelectionChange={onSelectionChange}
             onHackModeChange={setHackModeActive}
+            onHackSimulatorChange={setHackSimulator}
+            onGraphTopology={setGraphTopology}
           />
         </section>
         <aside className="w-80 border-l border-slate-200/60 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-950/40 p-3 overflow-auto">
           <InspectorPanel
             hackModeActive={hackModeActive}
+            hackSimulator={hackSimulator}
+            allNodes={graphTopology.nodes}
+            allEdges={graphTopology.edges}
             selectedNode={selectedNode}
             selectedEdge={selectedEdge}
             onUpdateNodeData={onUpdateNodeData}
