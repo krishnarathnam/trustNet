@@ -233,14 +233,18 @@ export const DEFAULT_HACK_SIMULATOR = {
 }
 
 /**
- * Default canvas: compact field → edge → security → app/cloud tier (demo preset).
+ * Default canvas: 10-node interconnected IoT mesh (field ↔ edge ↔ security ↔ app ↔ cloud).
+ * Positions use wide column/row gaps so nodes (~200px) and edges stay readable.
  */
 export function getDefaultCanvasState() {
+  const col = { field: 80, edge: 500, security: 920, app: 1340, cloud: 1760 }
+  const row = { top: 80, mid: 300, bot: 520 }
+
   const nodes = [
     {
       id: 'def-env',
       type: NODE_TYPE,
-      position: { x: 24, y: 24 },
+      position: { x: col.field, y: row.top },
       data: {
         assetType: 'env_sensor',
         label: 'Environmental sensor',
@@ -250,7 +254,7 @@ export function getDefaultCanvasState() {
     {
       id: 'def-cam',
       type: NODE_TYPE,
-      position: { x: 24, y: 112 },
+      position: { x: col.field, y: row.mid },
       data: {
         assetType: 'ip_camera',
         label: 'IP camera',
@@ -260,7 +264,7 @@ export function getDefaultCanvasState() {
     {
       id: 'def-plc',
       type: NODE_TYPE,
-      position: { x: 24, y: 200 },
+      position: { x: col.field, y: row.bot },
       data: {
         assetType: 'plc_controller',
         label: 'Industrial PLC',
@@ -270,7 +274,7 @@ export function getDefaultCanvasState() {
     {
       id: 'def-gw',
       type: NODE_TYPE,
-      position: { x: 200, y: 112 },
+      position: { x: col.edge, y: 190 },
       data: {
         assetType: 'edge_gateway',
         label: 'Edge gateway',
@@ -278,9 +282,19 @@ export function getDefaultCanvasState() {
       },
     },
     {
+      id: 'def-mqtt',
+      type: NODE_TYPE,
+      position: { x: col.edge, y: row.mid },
+      data: {
+        assetType: 'mqtt_broker',
+        label: 'MQTT broker',
+        packetsPerSecond: 15_000,
+      },
+    },
+    {
       id: 'def-fw',
       type: NODE_TYPE,
-      position: { x: 360, y: 48 },
+      position: { x: col.security, y: row.top },
       data: {
         assetType: 'firewall',
         label: 'Firewall',
@@ -290,7 +304,7 @@ export function getDefaultCanvasState() {
     {
       id: 'def-lb',
       type: NODE_TYPE,
-      position: { x: 360, y: 168 },
+      position: { x: col.security, y: row.mid },
       data: {
         assetType: 'load_balancer',
         label: 'Load balancer',
@@ -300,7 +314,7 @@ export function getDefaultCanvasState() {
     {
       id: 'def-api',
       type: NODE_TYPE,
-      position: { x: 520, y: 24 },
+      position: { x: col.app, y: row.top },
       data: {
         assetType: 'api_gateway',
         label: 'API gateway',
@@ -310,7 +324,7 @@ export function getDefaultCanvasState() {
     {
       id: 'def-app',
       type: NODE_TYPE,
-      position: { x: 520, y: 112 },
+      position: { x: col.app, y: row.mid },
       data: {
         assetType: 'app_server',
         label: 'Application server',
@@ -318,19 +332,9 @@ export function getDefaultCanvasState() {
       },
     },
     {
-      id: 'def-db',
-      type: NODE_TYPE,
-      position: { x: 520, y: 200 },
-      data: {
-        assetType: 'database_server',
-        label: 'Database server',
-        packetsPerSecond: 12_000,
-      },
-    },
-    {
       id: 'def-cloud',
       type: NODE_TYPE,
-      position: { x: 680, y: 24 },
+      position: { x: col.cloud, y: 240 },
       data: {
         assetType: 'cloud_ingest',
         label: 'Cloud ingest',
@@ -340,6 +344,7 @@ export function getDefaultCanvasState() {
   ]
 
   const edges = [
+    // Field → edge + MQTT (dual path)
     {
       id: 'def-e-env-gw',
       type: EDGE_TYPE,
@@ -362,11 +367,61 @@ export function getDefaultCanvasState() {
       data: { label: 'OPC / Modbus', packetsPerSecond: 4_000 },
     },
     {
+      id: 'def-e-env-mqtt',
+      type: EDGE_TYPE,
+      source: 'def-env',
+      target: 'def-mqtt',
+      data: { label: 'MQTT publish', packetsPerSecond: 3_200 },
+    },
+    {
+      id: 'def-e-cam-mqtt',
+      type: EDGE_TYPE,
+      source: 'def-cam',
+      target: 'def-mqtt',
+      data: { label: 'Event topics', packetsPerSecond: 7_500 },
+    },
+    {
+      id: 'def-e-plc-mqtt',
+      type: EDGE_TYPE,
+      source: 'def-plc',
+      target: 'def-mqtt',
+      data: { label: 'Tag stream', packetsPerSecond: 3_800 },
+    },
+    // Edge ↔ messaging + northbound
+    {
+      id: 'def-e-gw-mqtt',
+      type: EDGE_TYPE,
+      source: 'def-gw',
+      target: 'def-mqtt',
+      data: { label: 'Protocol bridge', packetsPerSecond: 14_000 },
+    },
+    {
+      id: 'def-e-mqtt-gw',
+      type: EDGE_TYPE,
+      source: 'def-mqtt',
+      target: 'def-gw',
+      data: { label: 'Command downlink', packetsPerSecond: 8_000 },
+    },
+    {
       id: 'def-e-gw-fw',
       type: EDGE_TYPE,
       source: 'def-gw',
       target: 'def-fw',
       data: { label: 'Northbound TLS', packetsPerSecond: 17_000 },
+    },
+    {
+      id: 'def-e-mqtt-fw',
+      type: EDGE_TYPE,
+      source: 'def-mqtt',
+      target: 'def-fw',
+      data: { label: 'Broker egress', packetsPerSecond: 12_000 },
+    },
+    {
+      id: 'def-e-gw-lb',
+      type: EDGE_TYPE,
+      source: 'def-gw',
+      target: 'def-lb',
+      data: { label: 'Failover path', packetsPerSecond: 5_000 },
     },
     {
       id: 'def-e-fw-lb',
@@ -375,12 +430,20 @@ export function getDefaultCanvasState() {
       target: 'def-lb',
       data: { label: 'Policy allow', packetsPerSecond: 26_000 },
     },
+    // App tier + cloud mesh
     {
       id: 'def-e-lb-api',
       type: EDGE_TYPE,
       source: 'def-lb',
       target: 'def-api',
       data: { label: 'HTTP / gRPC', packetsPerSecond: 24_000 },
+    },
+    {
+      id: 'def-e-lb-app',
+      type: EDGE_TYPE,
+      source: 'def-lb',
+      target: 'def-app',
+      data: { label: 'Session traffic', packetsPerSecond: 20_000 },
     },
     {
       id: 'def-e-api-app',
@@ -390,6 +453,27 @@ export function getDefaultCanvasState() {
       data: { label: 'REST routing', packetsPerSecond: 21_000 },
     },
     {
+      id: 'def-e-mqtt-app',
+      type: EDGE_TYPE,
+      source: 'def-mqtt',
+      target: 'def-app',
+      data: { label: 'Rule engine', packetsPerSecond: 14_000 },
+    },
+    {
+      id: 'def-e-app-mqtt',
+      type: EDGE_TYPE,
+      source: 'def-app',
+      target: 'def-mqtt',
+      data: { label: 'Device commands', packetsPerSecond: 5_000 },
+    },
+    {
+      id: 'def-e-plc-app',
+      type: EDGE_TYPE,
+      source: 'def-plc',
+      target: 'def-app',
+      data: { label: 'SCADA bridge', packetsPerSecond: 3_500 },
+    },
+    {
       id: 'def-e-api-cloud',
       type: EDGE_TYPE,
       source: 'def-api',
@@ -397,15 +481,29 @@ export function getDefaultCanvasState() {
       data: { label: 'Stream ingest', packetsPerSecond: 17_500 },
     },
     {
-      id: 'def-e-app-db',
+      id: 'def-e-mqtt-cloud',
+      type: EDGE_TYPE,
+      source: 'def-mqtt',
+      target: 'def-cloud',
+      data: { label: 'Telemetry fan-out', packetsPerSecond: 16_000 },
+    },
+    {
+      id: 'def-e-app-cloud',
       type: EDGE_TYPE,
       source: 'def-app',
-      target: 'def-db',
-      data: { label: 'SQL queries', packetsPerSecond: 11_000 },
+      target: 'def-cloud',
+      data: { label: 'Batch export', packetsPerSecond: 9_500 },
+    },
+    {
+      id: 'def-e-cam-cloud',
+      type: EDGE_TYPE,
+      source: 'def-cam',
+      target: 'def-cloud',
+      data: { label: 'Video CDN', packetsPerSecond: 6_500 },
     },
   ]
 
-  const viewport = { x: 40, y: 40, zoom: 1 }
+  const viewport = { x: 60, y: 60, zoom: 0.72 }
 
   const serialized = serializeGraph({ nodes, edges, viewport })
   return parseGraphJson(

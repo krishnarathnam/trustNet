@@ -10,11 +10,13 @@ import { createContext, useContext } from 'react'
  *   nodeScenarioBaselines?: Record<string, number>
  *   edgeScenarioBaselines?: Record<string, number>
  *   isolationScoresByNodeId?: Record<string, number>
- *   anomalyNodeIds?: string[]
- *   spreadEdgeIds?: string[]
- *   compromisedNodeIds?: string[]
- *   primarySpreadNodeId?: string | null
- *   primarySpreadEdgeId?: string | null
+ *   anomalyNodeIds?: string[] — IF anomaly seeds (red nodes)
+ *   spreadEdgeIds?: string[] — primary propagation link; kept for compatibility
+ *   compromisedNodeIds?: string[] — anomaly seeds + primary spread target
+ *   atRiskNodeIds?: string[] — downstream nodes that may be attacked (purple)
+ *   atRiskEdgeIds?: string[] — links on the simulated spread path (purple)
+ *   primarySpreadNodeId?: string | null — highest-risk spread target (red node)
+ *   primarySpreadEdgeId?: string | null — link to primary target (red edge)
  * }} HackSimulatorContextValue
  */
 

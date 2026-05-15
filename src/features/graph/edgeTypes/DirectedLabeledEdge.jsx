@@ -30,20 +30,26 @@ export default function DirectedLabeledEdge(edgeProps) {
     displayPps > 0 ? `${displayPps.toLocaleString()} pkt/s` : null
 
   const drift = hasScenarioDrift({ baselinePps: baseline, effectivePps: displayPps })
-  const onSpreadPath =
-    attackOn && (hack?.spreadEdgeIds ?? []).includes(id)
+  const onPrimarySpreadPath =
+    attackOn && hack?.primarySpreadEdgeId != null && hack.primarySpreadEdgeId === id
+  const onAtRiskPath =
+    attackOn && !onPrimarySpreadPath && (hack?.atRiskEdgeIds ?? []).includes(id)
 
-  const chipClass = onSpreadPath
+  const chipClass = onPrimarySpreadPath
     ? 'bg-rose-500/20 dark:bg-rose-500/15 text-rose-950 dark:text-rose-200 border-rose-600/45 dark:border-rose-500/45'
-    : attackOn
+    : onAtRiskPath
+      ? 'bg-violet-500/20 dark:bg-violet-500/15 text-violet-950 dark:text-violet-200 border-violet-600/45 dark:border-violet-500/45'
+      : attackOn
       ? !drift
         ? 'bg-slate-200/90 dark:bg-slate-700/80 text-slate-800 dark:text-slate-100 border-slate-300/90 dark:border-slate-600/80'
         : 'bg-amber-500/20 dark:bg-amber-500/15 text-amber-950 dark:text-amber-200 border-amber-600/45 dark:border-amber-500/45'
       : 'bg-emerald-500/15 dark:bg-emerald-500/10 text-emerald-900 dark:text-emerald-200 border-emerald-600/35 dark:border-emerald-500/35'
 
-  const edgeStyle = onSpreadPath
+  const edgeStyle = onPrimarySpreadPath
     ? { stroke: '#dc2626', strokeWidth: 2.5 }
-    : undefined
+    : onAtRiskPath
+      ? { stroke: '#9333ea', strokeWidth: 2.5 }
+      : undefined
 
   return (
     <>

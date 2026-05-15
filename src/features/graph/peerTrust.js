@@ -290,6 +290,8 @@ export function collectActiveAnomalies(nodes, edges, sim) {
       anomalyNodeIds: [],
       spreadEdgeIds: [],
       compromisedNodeIds: [],
+      atRiskNodeIds: [],
+      atRiskEdgeIds: [],
       primarySpreadNodeId: null,
       primarySpreadEdgeId: null,
       isolationScoresByNodeId: {},
@@ -327,6 +329,8 @@ export function collectActiveAnomalies(nodes, edges, sim) {
     anomalyNodeIds: ifResult.anomalyNodeIds,
     spreadEdgeIds: spread.spreadEdgeIds,
     compromisedNodeIds: spread.compromisedNodeIds,
+    atRiskNodeIds: spread.atRiskNodeIds ?? [],
+    atRiskEdgeIds: spread.atRiskEdgeIds ?? [],
     primarySpreadNodeId: spread.primarySpreadNodeId ?? null,
     primarySpreadEdgeId: spread.primarySpreadEdgeId ?? null,
     isolationScoresByNodeId: ifResult.isolationScoresByNodeId,
@@ -391,8 +395,10 @@ export function getNodeTrustInsights({
   }
 
   const trustModel = computeTrustScore(nodeId, nodes, edges, sim ?? { active: false })
-  const compromisedSet = new Set(spread?.compromisedNodeIds ?? [])
-  const spreadEdgeSet = new Set(spread?.spreadEdgeIds ?? [])
+  const anomalyNodeIds =
+    sim?.active === true && Array.isArray(sim.anomalyNodeIds)
+      ? sim.anomalyNodeIds
+      : ifResult?.anomalyNodeIds ?? []
 
   return {
     intrinsicTrust,
@@ -402,10 +408,22 @@ export function getNodeTrustInsights({
     behavioralComponent: trustModel.behavioralComponent,
     interactionComponent: trustModel.interactionComponent,
     ...anomaly,
-    spreadReached: compromisedSet.has(nodeId) && !anomaly.isAnomaly,
-    onSpreadPath: [...spreadEdgeSet].some((eid) => {
-      const edge = edges.find((e) => e.id === eid)
-      return edge && (edge.source === nodeId || edge.target === nodeId)
-    }),
+    attackOrigin: anomalyNodeIds.includes(nodeId),
+    spreadReached: spread?.primarySpreadNodeId === nodeId,
+    atRisk: (() => {
+      const atRiskIds =
+        sim?.active === true && Array.isArray(sim.atRiskNodeIds)
+          ? sim.atRiskNodeIds
+          : spread?.atRiskNodeIds ?? []
+      return (
+        atRiskIds.includes(nodeId) &&
+        !anomalyNodeIds.includes(nodeId) &&
+        spread?.primarySpreadNodeId !== nodeId
+      )
+    })(),
+    onSpreadPath: spread?.primarySpreadEdgeId != null && (() => {
+      const edge = edges.find((e) => e.id === spread.primarySpreadEdgeId)
+      return edge != null && (edge.source === nodeId || edge.target === nodeId)
+    })(),
   }
 }

@@ -14,26 +14,38 @@ function nodeResistance(nodeId, nodes, metrics) {
 
 /**
  * Simulate spread when the attack moves to a single first-hop neighbor, then BFS
- * into lower-resistance assets. Returns how many non-seed nodes would be reached.
+ * into lower-resistance assets.
+ *
+ * @returns {{ score: number, atRiskNodeIds: string[], atRiskEdgeIds: string[] }}
  */
 function simulateSpreadReach(seeds, firstHopId, adj, nodes, metrics) {
   const seedSet = new Set(seeds)
   const compromised = new Set(seeds)
   compromised.add(firstHopId)
+  const atRiskEdgeIds = []
 
   const queue = [firstHopId]
 
   while (queue.length > 0) {
     const u = queue.shift()
-    for (const { neighborId: v } of adj.get(u) ?? []) {
+    for (const { neighborId: v, edgeId } of adj.get(u) ?? []) {
       if (compromised.has(v)) continue
       if (nodeResistance(v, nodes, metrics) >= SPREAD_TRUST_CUTOFF) continue
       compromised.add(v)
+      atRiskEdgeIds.push(edgeId)
       queue.push(v)
     }
   }
 
-  return compromised.size - seedSet.size
+  const atRiskNodeIds = [...compromised].filter(
+    (id) => !seedSet.has(id) && id !== firstHopId
+  )
+
+  return {
+    score: compromised.size - seedSet.size,
+    atRiskNodeIds,
+    atRiskEdgeIds,
+  }
 }
 
 /**
@@ -49,24 +61,72 @@ function pickPrimarySpreadTarget(seeds, adj, nodes, metrics) {
     for (const { neighborId: v, edgeId } of adj.get(seed) ?? []) {
       if (seedSet.has(v)) continue
 
-      const score = simulateSpreadReach(seeds, v, adj, nodes, metrics)
+      const reach = simulateSpreadReach(seeds, v, adj, nodes, metrics)
       const resistance = nodeResistance(v, nodes, metrics)
       const degree = metrics.get(v)?.degree ?? 0
 
       if (
         best === null ||
-        score > best.score ||
-        (score === best.score && resistance < best.resistance) ||
-        (score === best.score &&
+        reach.score > best.score ||
+        (reach.score === best.score && resistance < best.resistance) ||
+        (reach.score === best.score &&
           resistance === best.resistance &&
           degree > best.degree)
       ) {
-        best = { nodeId: v, edgeId, score, resistance, degree }
+        best = {
+          nodeId: v,
+          edgeId,
+          score: reach.score,
+          resistance,
+          degree,
+          atRiskNodeIds: reach.atRiskNodeIds,
+          atRiskEdgeIds: reach.atRiskEdgeIds,
+        }
       }
     }
   }
 
   return best
+}
+
+/**
+ * Direct neighbors of anomaly seeds that are not the chosen primary spread target.
+ * These are the other first-hop nodes that could still be attacked.
+ */
+function collectAlternateSpreadTargets(seeds, primary, adj) {
+  const seedSet = new Set(seeds)
+  const primaryNodeId = primary?.nodeId ?? null
+  const primaryEdgeId = primary?.edgeId ?? null
+  /** @type {string[]} */
+  const atRiskNodeIds = []
+  /** @type {string[]} */
+  const atRiskEdgeIds = []
+
+  for (const seed of seeds) {
+    for (const { neighborId: v, edgeId } of adj.get(seed) ?? []) {
+      if (seedSet.has(v)) continue
+      if (v === primaryNodeId) continue
+      if (edgeId === primaryEdgeId) continue
+      if (!atRiskNodeIds.includes(v)) atRiskNodeIds.push(v)
+      if (!atRiskEdgeIds.includes(edgeId)) atRiskEdgeIds.push(edgeId)
+    }
+  }
+
+  return { atRiskNodeIds, atRiskEdgeIds }
+}
+
+function mergeAtRiskLists(...lists) {
+  const nodeIds = []
+  const edgeIds = []
+  for (const list of lists) {
+    for (const id of list.atRiskNodeIds ?? []) {
+      if (!nodeIds.includes(id)) nodeIds.push(id)
+    }
+    for (const id of list.atRiskEdgeIds ?? []) {
+      if (!edgeIds.includes(id)) edgeIds.push(id)
+    }
+  }
+  return { atRiskNodeIds: nodeIds, atRiskEdgeIds: edgeIds }
 }
 
 /**
@@ -89,6 +149,8 @@ export function computeAttackSpread({ nodes, edges, anomalyNodeIds, peerMetrics 
     return {
       compromisedNodeIds: [],
       spreadEdgeIds: [],
+      atRiskNodeIds: [],
+      atRiskEdgeIds: [],
       primarySpreadNodeId: null,
       primarySpreadEdgeId: null,
     }
@@ -110,14 +172,27 @@ export function computeAttackSpread({ nodes, edges, anomalyNodeIds, peerMetrics 
     return {
       compromisedNodeIds: [...seeds],
       spreadEdgeIds: [],
+      atRiskNodeIds: [],
+      atRiskEdgeIds: [],
       primarySpreadNodeId: null,
       primarySpreadEdgeId: null,
     }
   }
 
+  const alternates = collectAlternateSpreadTargets(seeds, primary, adj)
+  const merged = mergeAtRiskLists(
+    { atRiskNodeIds: primary.atRiskNodeIds ?? [], atRiskEdgeIds: primary.atRiskEdgeIds ?? [] },
+    alternates
+  )
+  const excludeNodes = new Set([...seeds, primary.nodeId])
+  const atRiskNodeIds = merged.atRiskNodeIds.filter((id) => !excludeNodes.has(id))
+  const atRiskEdgeIds = merged.atRiskEdgeIds.filter((id) => id !== primary.edgeId)
+
   return {
     compromisedNodeIds: [...seeds, primary.nodeId],
     spreadEdgeIds: [primary.edgeId],
+    atRiskNodeIds,
+    atRiskEdgeIds,
     primarySpreadNodeId: primary.nodeId,
     primarySpreadEdgeId: primary.edgeId,
   }

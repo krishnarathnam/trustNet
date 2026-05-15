@@ -100,20 +100,20 @@ export default function DashboardPage() {
   const spark = [12, 18, 14, 22, 19, 26, 24, 28, 31, 27, 33, 30]
 
   return (
-    <div className="min-h-[100svh] bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-50">
-      <header className="h-14 border-b border-slate-200/60 dark:border-slate-800/60 px-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-sm" />
-          <div className="leading-tight">
-            <div className="font-semibold">Operations dashboard</div>
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+    <div className="min-h-[100svh] overflow-x-hidden bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-50">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200/60 px-3 dark:border-slate-800/60 sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+          <div className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-br from-indigo-500 to-fuchsia-500 shadow-sm sm:h-9 sm:w-9" />
+          <div className="min-w-0 leading-tight">
+            <div className="truncate font-semibold text-sm sm:text-base">Operations dashboard</div>
+            <div className="hidden truncate text-xs text-slate-500 dark:text-slate-400 sm:block">
               Dummy metrics — IoT fleet & trust overview
             </div>
           </div>
         </div>
         <Link
           to="/"
-          className="rounded-lg border border-slate-200/80 dark:border-slate-700/80 bg-white/80 dark:bg-slate-900/40 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition"
+          className="shrink-0 rounded-lg border border-slate-200/80 dark:border-slate-700/80 bg-white/80 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:bg-slate-900/40 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition sm:px-3 sm:py-2 sm:text-sm"
         >
           Canvas
         </Link>

@@ -195,6 +195,8 @@ function GraphCanvasInner({
       anomalyNodeIds: securityScan.anomalyNodeIds ?? [],
       spreadEdgeIds: securityScan.spreadEdgeIds ?? [],
       compromisedNodeIds: securityScan.compromisedNodeIds ?? [],
+      atRiskNodeIds: securityScan.atRiskNodeIds ?? [],
+      atRiskEdgeIds: securityScan.atRiskEdgeIds ?? [],
       primarySpreadNodeId: securityScan.primarySpreadNodeId ?? null,
       primarySpreadEdgeId: securityScan.primarySpreadEdgeId ?? null,
     }),
@@ -208,6 +210,8 @@ function GraphCanvasInner({
       securityScan.anomalyNodeIds,
       securityScan.spreadEdgeIds,
       securityScan.compromisedNodeIds,
+      securityScan.atRiskNodeIds,
+      securityScan.atRiskEdgeIds,
       securityScan.primarySpreadNodeId,
       securityScan.primarySpreadEdgeId,
     ]
@@ -670,6 +674,39 @@ function GraphCanvasInner({
 
   const { fitView, setViewport, zoomIn, zoomOut } = useReactFlow()
 
+  const clearAllTopology = useCallback(() => {
+    const nodeCount = nodesRef.current.length
+    const edgeCount = edgesRef.current.length
+    if (nodeCount === 0 && edgeCount === 0) return
+
+    const nodeLabel = nodeCount === 1 ? 'node' : 'nodes'
+    const edgeLabel = edgeCount === 1 ? 'edge' : 'edges'
+    if (
+      !window.confirm(
+        `Delete all ${nodeCount} ${nodeLabel} and ${edgeCount} ${edgeLabel}? This cannot be undone.`
+      )
+    ) {
+      return
+    }
+
+    setNodes([])
+    setEdges([])
+    setHackSimulator(DEFAULT_HACK_SIMULATOR)
+    selectionIdsRef.current = { nodeId: null, edgeId: null }
+    setAnomalyToast(null)
+    emitSelection()
+
+    const viewport = reactFlowInstanceRef.current?.getViewport?.() ?? { x: 0, y: 0, zoom: 1 }
+    skipNextPersistRef.current = true
+    const payload = buildCanvasPersistPayload({
+      nodes: [],
+      edges: [],
+      viewport,
+      hackSimulator: DEFAULT_HACK_SIMULATOR,
+    })
+    persistGraphJson(JSON.stringify(payload))
+  }, [emitSelection])
+
   const loadDefaultArchitecture = useCallback(() => {
     if (
       nodes.length > 0 &&
@@ -680,7 +717,7 @@ function GraphCanvasInner({
     applyDefaultArchitectureState()
     emitSelection()
     requestAnimationFrame(() => {
-      fitView({ duration: 700, padding: 0.4, maxZoom: 1 })
+      fitView({ duration: 700, padding: 0.55, maxZoom: 0.95 })
     })
   }, [nodes.length, applyDefaultArchitectureState, emitSelection, fitView])
 
@@ -723,20 +760,8 @@ function GraphCanvasInner({
       ) : null}
       <Panel
         position="top-left"
-        className="m-3 p-2 rounded-xl border border-slate-200/70 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/60 shadow-sm flex items-center gap-2 pointer-events-none"
+        className="!m-2 sm:!m-3 !max-w-[calc(100vw-1rem)] sm:!max-w-[calc(100vw-1.5rem)] p-2 rounded-xl border border-slate-200/70 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/60 shadow-sm flex flex-wrap items-center gap-1.5 sm:gap-2 pointer-events-none"
       >
-        <label className="pointer-events-auto flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 select-none cursor-pointer">
-          <input
-            type="checkbox"
-            checked={snapToGrid}
-            onChange={(e) => setSnapToGrid(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 dark:border-slate-600"
-          />
-          Snap
-        </label>
-
-        <div className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
-
         <button
           type="button"
           onClick={() => zoomOut()}
@@ -759,40 +784,28 @@ function GraphCanvasInner({
         >
           Fit
         </button>
-        <button
-          type="button"
-          onClick={resetView}
-          className="pointer-events-auto h-8 px-3 rounded-lg border border-slate-200/70 dark:border-slate-800/70 text-xs hover:bg-slate-100/70 dark:hover:bg-slate-800/40"
-        >
-          Reset
-        </button>
-
-        <div className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
 
         <button
           type="button"
-          onClick={exportGraph}
-          className="pointer-events-auto h-8 px-3 rounded-lg border border-slate-200/70 dark:border-slate-800/70 text-xs hover:bg-slate-100/70 dark:hover:bg-slate-800/40"
+          onClick={clearAllTopology}
+          disabled={nodes.length === 0 && edges.length === 0}
+          title="Remove every node and connection from the canvas"
+          className="pointer-events-auto h-8 px-3 rounded-lg border border-rose-200/80 dark:border-rose-900/60 text-xs text-rose-700 dark:text-rose-300 hover:bg-rose-50/80 dark:hover:bg-rose-950/40 disabled:opacity-40 disabled:pointer-events-none"
         >
-          Export
-        </button>
-        <button
-          type="button"
-          onClick={onImportClick}
-          className="pointer-events-auto h-8 px-3 rounded-lg border border-slate-200/70 dark:border-slate-800/70 text-xs hover:bg-slate-100/70 dark:hover:bg-slate-800/40"
-        >
-          Import
+          <span className="sm:hidden">Clear</span>
+          <span className="hidden sm:inline">Clear all</span>
         </button>
         <button
           type="button"
           onClick={loadDefaultArchitecture}
           title="Reset canvas to the built-in demo topology"
-          className="pointer-events-auto h-8 px-3 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+          className="pointer-events-auto h-8 px-2 sm:px-3 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600"
         >
-          Default architecture
+          <span className="sm:hidden">Default</span>
+          <span className="hidden sm:inline">Default architecture</span>
         </button>
 
-        <div className="h-5 w-px bg-slate-200 dark:bg-slate-800" />
+        <div className="hidden h-5 w-px shrink-0 bg-slate-200 dark:bg-slate-800 sm:block" />
 
         <button
           type="button"
@@ -804,9 +817,17 @@ function GraphCanvasInner({
               : 'border border-slate-200/70 dark:border-slate-800/70 hover:bg-slate-100/70 dark:hover:bg-slate-800/40',
           ].join(' ')}
         >
-          {hackSimulator.active === true
-            ? 'Compromise scenario on'
-            : 'Compromise scenario'}
+          {hackSimulator.active === true ? (
+            <>
+              <span className="sm:hidden">Scenario on</span>
+              <span className="hidden sm:inline">Compromise scenario on</span>
+            </>
+          ) : (
+            <>
+              <span className="sm:hidden">Scenario</span>
+              <span className="hidden sm:inline">Compromise scenario</span>
+            </>
+          )}
         </button>
         <button
           type="button"
@@ -818,7 +839,8 @@ function GraphCanvasInner({
           className="pointer-events-auto h-8 px-2 rounded-lg border border-slate-200/70 dark:border-slate-800/70 text-xs hover:bg-slate-100/70 dark:hover:bg-slate-800/40 disabled:opacity-40 disabled:pointer-events-none"
           title="Clear scenario packet overrides (baseline unchanged)"
         >
-          Reset scenario
+          <span className="sm:hidden">Reset</span>
+          <span className="hidden sm:inline">Reset scenario</span>
         </button>
       </Panel>
 

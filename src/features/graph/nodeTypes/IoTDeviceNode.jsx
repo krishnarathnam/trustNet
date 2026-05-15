@@ -8,7 +8,6 @@ import {
   evaluateTrustAnomaly,
   hasScenarioDrift,
   isAnomalyDetected,
-  isScenarioCritical,
 } from '../peerTrust'
 
 function clamp(n, min, max) {
@@ -31,6 +30,12 @@ const HACK_TAMPERED = {
   base: '#ef4444',
   border: '#dc2626',
   bg: 'color-mix(in srgb, #ef4444 22%, transparent)',
+}
+
+const HACK_ATTACK_ORIGIN = {
+  base: '#a855f7',
+  border: '#9333ea',
+  bg: 'color-mix(in srgb, #a855f7 22%, transparent)',
 }
 
 const HACK_DRIFT = {
@@ -135,33 +140,34 @@ export default function IoTDeviceNode(nodeProps) {
     attackOn,
   ])
 
-  const spreadReached = useMemo(() => {
-    if (!attackOn) return false
-    const compromised = hack?.compromisedNodeIds ?? []
-    return compromised.includes(id) && !anomaly.isAnomaly
-  }, [attackOn, hack?.compromisedNodeIds, id, anomaly.isAnomaly])
+  const isPrimarySpreadTarget =
+    attackOn && hack?.primarySpreadNodeId != null && hack.primarySpreadNodeId === id
+  const isAnomalySeed = attackOn && anomaly.isAnomaly
+  const isCriticalRed = isPrimarySpreadTarget || isAnomalySeed
+  const atRiskNodeIds = hack?.atRiskNodeIds ?? []
+  const isAtRisk =
+    attackOn && !isCriticalRed && atRiskNodeIds.includes(id)
 
   const label = data.label ?? asset?.title ?? 'Untitled device'
   const Icon = asset?.Icon
 
   const drift = hasScenarioDrift({ baselinePps, effectivePps: displayPps })
-  const critical = isScenarioCritical({
-    isAnomaly: anomaly.isAnomaly,
-    trustAnomaly: anomaly.trustAnomaly,
-  })
 
   const { base, border, bg } = !attackOn
     ? NORMAL_NODE_STYLE
-    : critical || spreadReached
+    : isCriticalRed
       ? HACK_TAMPERED
-      : !drift
-        ? HACK_MUTED
-        : HACK_DRIFT
+      : isAtRisk
+        ? HACK_ATTACK_ORIGIN
+        : !drift
+          ? HACK_MUTED
+          : HACK_DRIFT
 
   const ppsLabel = ppsFormatter.format(displayPps)
   const trustLabel = trustFormatter.format(trustModel.trustScore)
   const showAnomalyDetectedBadge = attackOn && isAnomalyDetected(anomaly)
-  const showSpreadBadge = attackOn && spreadReached
+  const showSpreadBadge = isPrimarySpreadTarget
+  const showAtRiskBadge = isAtRisk
 
   return (
     <div
@@ -182,8 +188,13 @@ export default function IoTDeviceNode(nodeProps) {
         </div>
       ) : null}
       {showSpreadBadge ? (
-        <div className="pointer-events-none absolute -top-2 left-2 z-10 max-w-[120px] rounded-md bg-rose-600 px-2 py-1 text-[10px] font-bold leading-tight text-white shadow text-center">
-          Compromised
+        <div className="pointer-events-none absolute -top-2 left-2 z-10 max-w-[140px] rounded-md bg-rose-600 px-2 py-1 text-[10px] font-bold leading-tight text-white shadow text-center">
+          Highest spread risk
+        </div>
+      ) : null}
+      {showAtRiskBadge ? (
+        <div className="pointer-events-none absolute -top-2 left-2 z-10 max-w-[120px] rounded-md bg-violet-600 px-2 py-1 text-[10px] font-bold leading-tight text-white shadow text-center">
+          May be attacked
         </div>
       ) : null}
 
